@@ -17,7 +17,7 @@ using System.Text;
 namespace DuDDo.Payments
 {
     /// <summary>
-    /// Tatrabanka CardPay AES-256 version - minimalist implementation (K.I.S.S. design principle)
+    /// Tatrabanka CardPay HMAC SHA256 version - minimalist implementation (K.I.S.S. design principle)
     /// </summary>
     public class TbCardPay
     {
@@ -340,7 +340,7 @@ namespace DuDDo.Payments
         }
 
         /// <summary>
-        /// AWARE: This will always returns 64 bytes array (padded with zero values) for AES-256 key 
+        /// AWARE: This will always returns 64 bytes array (padded with zero values)
         /// </summary>
         /// <param name="hex"></param>
         /// <returns></returns>
