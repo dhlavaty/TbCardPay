@@ -1,8 +1,8 @@
 ﻿/*
- * TbCardPay - minimalist C# Tatrabanka CardPay implementation
+ * TbCardPay - minimalist C# Tatrabanka CardPay implementation (HMAC SHA256)
  * ==================================================
- * version 0.1.0 (2014-04-10)  
- * (c) 2014 Dušan Hlavatý (dhlavaty@gmail.com)  
+ * version 0.2.0 (2015-08-03)  
+ * (c) 2014, 2015 Dušan Hlavatý (dhlavaty@gmail.com)  
  * freely distributable under The MIT License (MIT)  
  * https://github.com/dhlavaty/TbCardPay
  * 
@@ -122,12 +122,30 @@ namespace DuDDo.Payments
         }
         private string _hexEncryptKey = null;
 
+        public string TIMESTAMP
+        {
+            get
+            {
+                if (String.IsNullOrWhiteSpace(this._timestamp))
+                {
+                    return DateTime.UtcNow.ToString("ddMMyyyyHHmmss");
+                }
+
+                return this._timestamp;
+            }
+            set
+            {
+                this._timestamp = value;
+            }
+        }
+        private string _timestamp = null;
+
         /// <summary>
-        /// SIGN (string) povinny
+        /// HMAC (string) povinny
         /// Bezpečnostný podpis vygenerovaný na strane obchodníka. Môže obsahovať iba veľké písmená a čísla (A-Z, 0-9).
         /// 32 znakov
         /// </summary>
-        public string SIGN
+        public string HMAC
         {
             get
             {
@@ -137,8 +155,7 @@ namespace DuDDo.Payments
                     TbCardPay.SelfTest();
                 }
 
-                // hash = SHA1( MID + AMT + CURR + VS + RURL + IPC + NAME )
-                // SIGN = BYTE2HEX( AES256( hash[0..15], key ) )
+                // SIGN = BYTE2HEX( HMACSHA256( MID + AMT + CURR + VS + RURL + IPC + NAME + TIMESTAMP ) )
 
                 StringBuilder sb = new StringBuilder();
                 sb.Append(this.MID.ToString(CultureInfo.InvariantCulture));
@@ -148,6 +165,8 @@ namespace DuDDo.Payments
                 sb.Append(this.RURL);
                 sb.Append(this.IPC);
                 sb.Append(this.NAME);
+                // REM - (nepovinny)(max.50znakov) Emailová adresa pre zaslanie notifikácie o výsledku platby
+                sb.Append(this.TIMESTAMP);
                 var toSign = sb.ToString();
 
                 return CardPaySign(toSign, this.HexEncryptKey);
@@ -215,17 +234,22 @@ namespace DuDDo.Payments
             return ret;
         }
 
-        private static bool CheckBankResponse(int vs, string res, string ac, string sign, string applicationHexEncryptKey)
+        private static bool CheckBankResponse(string amt, string curr, int vs, string res, string ac, string tid, string timestamp, string hmac, string applicationHexEncryptKey)
         {
-            // VS={parameter VS}&RES={parameter RES}& AC={parameter AC}&SIGN={bezp. podpis}
+            // AMT={parameter amt}&...&VS={parameter VS}&RES={parameter RES}&AC={parameter AC}&HMAC={bezp. podpis}
+            // BYTE2HEX( HMACSHA256( AMT + CURR + VS + RES + AC + TID + TIMESTAMP ) )
             StringBuilder sb = new StringBuilder();
+            sb.Append(amt);
+            sb.Append(curr);
             sb.Append(vs.ToString(CultureInfo.InvariantCulture));
             sb.Append(res);
             sb.Append(ac ?? "");
+            sb.Append(tid);
+            sb.Append(timestamp);
+            
+            var calculatedHmac = CardPaySign(sb.ToString(), applicationHexEncryptKey);
 
-            var calculatedSign = CardPaySign(sb.ToString(), applicationHexEncryptKey);
-
-            if (calculatedSign == sign)
+            if (calculatedHmac == hmac)
             {
                 // Podpis je OK, plati vysledok RES a AC
                 return true;
@@ -239,14 +263,18 @@ namespace DuDDo.Payments
         /// Now, if "res" contains "OK" you could accept payment.
         /// If "res" contains "FAIL" you should ignore payment - it was not processed by bank.
         /// </summary>
+        /// <param name="amt"></param>
+        /// <param name="curr"></param>
         /// <param name="vs"></param>
         /// <param name="res"></param>
         /// <param name="ac"></param>
-        /// <param name="sign"></param>
+        /// <param name="tid"></param>
+        /// <param name="timestamp"></param>
+        /// <param name="hmac"></param>
         /// <returns><c>true</c> if bank response correctly signed so parameters "res" and "ac" are valid;</returns>
-        public static bool CheckBankResponse(int vs, string res, string ac, string sign)
+        public static bool CheckBankResponse(string amt, string curr, int vs, string res, string ac, string tid, string timestamp, string hmac)
         {
-            return CheckBankResponse(vs, res, ac, sign, TbCardPay.ApplicationHexEncryptKey);
+            return CheckBankResponse(amt, curr, vs, res, ac, tid, timestamp, hmac, TbCardPay.ApplicationHexEncryptKey);
         }
 
         /// <summary>
@@ -256,7 +284,6 @@ namespace DuDDo.Payments
         public string HtmlHiddenFields()
         {
             StringBuilder sb = new StringBuilder();
-            sb.AppendFormat("<input type='hidden' name='PT' value='{0}' />", this.PT);
             sb.AppendFormat("<input type='hidden' name='MID' value='{0}' />", this.MID.ToString(CultureInfo.InvariantCulture));
             sb.AppendFormat(CultureInfo.InvariantCulture, "<input type='hidden' name='AMT' value='{0:0.00}' />", this.AMT);
             sb.AppendFormat("<input type='hidden' name='CURR' value='{0}' />", ((int)this.CURR).ToString(CultureInfo.InvariantCulture));
@@ -264,7 +291,10 @@ namespace DuDDo.Payments
             sb.AppendFormat("<input type='hidden' name='RURL' value='{0}' />", this.RURL);
             sb.AppendFormat("<input type='hidden' name='IPC' value='{0}' />", this.IPC);
             sb.AppendFormat("<input type='hidden' name='NAME' value='{0}' />", this.NAME);
-            sb.AppendFormat("<input type='hidden' name='SIGN' value='{0}' />", this.SIGN);
+            sb.Append("<input type='hidden' name='LANG' value='sk' />");
+            sb.Append("<input type='hidden' name='AREDIR' value='1' />");
+            sb.AppendFormat("<input type='hidden' name='TIMESTAMP' value='{0}' />", this.TIMESTAMP);
+            sb.AppendFormat("<input type='hidden' name='HMAC' value='{0}' />", this.HMAC);
 
             return sb.ToString();
         }
@@ -276,18 +306,19 @@ namespace DuDDo.Payments
         /// <returns></returns>
         public static TbCardPay SelfTest()
         {
-            TbCardPay request = TbCardPay.CreateRequest(1234.5, Currency.EUR, 1111, "https://moja.tatrabanka.sk/cgi-bin/e-commerce/start/example.jsp", "1.2.3.4", "JanPokusny");
+            TbCardPay request = TbCardPay.CreateRequest(1234.5, Currency.EUR, 1111, "https://moja.tatrabanka.sk/cgi-bin/e-commerce/start/example.jsp", "1.2.3.4", "Jan Pokusny");
             request.MID = 9999;
-            request.HexEncryptKey = "1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D";
-            request.FormActionUrl = "https://moja.tatrabanka.sk/cgi-bin/e-commerce/start/example.jsp";
+            request.HexEncryptKey = "31323334353637383930313233343536373839303132333435363738393031323132333435363738393031323334353637383930313233343536373839303132";
+            request.FormActionUrl = "https://moja.tatrabanka.sk/cgi-bin/e-commerce/start/cardpay";
+            request.TIMESTAMP = "01092014125505";
             request.isSelfTestRunning = true;
 
-            if (request.SIGN != "4E7DF35F91A19F6F6A4A0AF5534AC919")
+            if (request.HMAC != "574b763f4afd4167b10143d71dc2054615c3fa76877dc08a7cc9592a741b3eb5")
             {
                 throw new ApplicationException("TbCardPay self request test not passed");
             }
 
-            if (TbCardPay.CheckBankResponse(1111, "OK", "123456", "781C110AD840077E470E1D5C9F944D7D", applicationHexEncryptKey: request.HexEncryptKey) == false)
+            if (TbCardPay.CheckBankResponse("1234.50", "978", 1111, "OK", "123456", "1", "01092014125505", "8df96c2603831046d0e3502cab1ddb7d9b629d7f09a44aee7abbec0be3f2d971", applicationHexEncryptKey: request.HexEncryptKey) == false)
             {
                 throw new ApplicationException("TbCardPay self response test not passed");
             }
@@ -302,21 +333,21 @@ namespace DuDDo.Payments
             StringBuilder hex = new StringBuilder(byteArray.Length * 2);
             foreach (byte b in byteArray)
             {
-                hex.AppendFormat("{0:X2}", b);
+                hex.AppendFormat("{0:x2}", b);
             }
 
             return hex.ToString();
         }
 
         /// <summary>
-        /// AWARE: This will always returns 32 bytes array (padded with zero values) for AES-256 key 
+        /// AWARE: This will always returns 64 bytes array (padded with zero values) for AES-256 key 
         /// </summary>
         /// <param name="hex"></param>
         /// <returns></returns>
-        public static byte[] HexStringTo32ByteArray(String hex)
+        public static byte[] HexStringTo64ByteArray(String hex)
         {
             int numOfChars = hex.Length;
-            byte[] bytes = new byte[256 / 8];
+            byte[] bytes = new byte[64];
             for (int i = 0; i < numOfChars; i += 2)
             {
                 bytes[i / 2] = Convert.ToByte(hex.Substring(i, 2), 16);
@@ -328,40 +359,14 @@ namespace DuDDo.Payments
         public static string CardPaySign(string toSign, string hexEncryptKey)
         {
             byte[] toHash = Encoding.ASCII.GetBytes(toSign);
+            byte[] key = HexStringTo64ByteArray(hexEncryptKey);
             byte[] hash;
-            using (SHA1 sha = new SHA1Managed())
+            using (HMACSHA256 hmac = new HMACSHA256(key))
             {
-                hash = sha.ComputeHash(toHash);
+                hash = hmac.ComputeHash(toHash);
             }
 
-            byte[] toEncrypt = new byte[16];
-            for (int i = 0; i < 16; i++)
-            {
-                toEncrypt[i] = hash[i];
-            }
-
-            byte[] encrypted;
-            using (AesManaged aes = new AesManaged())
-            {
-                aes.Mode = CipherMode.ECB;
-                aes.Padding = PaddingMode.None;
-                aes.KeySize = 256;
-                aes.Key = HexStringTo32ByteArray(hexEncryptKey);
-
-                ICryptoTransform encryptor = aes.CreateEncryptor();
-
-                // Create the streams used for encryption. 
-                using (MemoryStream msEncrypt = new MemoryStream())
-                {
-                    using (CryptoStream csEncrypt = new CryptoStream(msEncrypt, encryptor, CryptoStreamMode.Write))
-                    {
-                        csEncrypt.Write(toEncrypt, 0, 16);
-                        encrypted = msEncrypt.ToArray();
-                    }
-                }
-            }
-
-            return ByteArrayToHexString(encrypted);
+            return ByteArrayToHexString(hash);
         }
 
         public enum Currency : int
