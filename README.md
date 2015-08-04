@@ -23,7 +23,7 @@ Setup / Nastavenie:
     
     <add key="CardPay:Mid" value="9999" />
     <add key="CardPay:HexEncryptKey" value="1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D1A2B3C4D" />
-    <add key="CardPay:FormActionUrl" value="http://localhost/" />
+    <add key="CardPay:FormActionUrl" value="https://moja.tatrabanka.sk/cgi-bin/e-commerce/start/cardpay" />
 
 
 Usage / Použitie:
