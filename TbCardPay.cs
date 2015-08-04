@@ -174,10 +174,10 @@ namespace DuDDo.Payments
         }
 
         /// <summary>
-        /// URL adresa platobnej brany CardPay - nezabudni nastavit FORM 'enctype' na 'application/x-www-form-urlencoded')
+        /// URL adresa platobnej brany CardPay
         /// 
         /// Priklad:
-        /// [form action="@FormActionUrl" enctype="application/x-www-form-urlencoded" method="post"]
+        /// [form action="@FormActionUrl" method="post"]
         /// [/form]
         /// </summary>
         public string FormActionUrl
